@@ -1,5 +1,6 @@
 
 import * as vscode from 'vscode';
+import * as net from 'net';
 
 const tokens: { [command: string]: string[]; } = {
     "start": ["now","save","map","next","cm"],
@@ -148,6 +149,35 @@ export function activate(context: vscode.ExtensionContext) {
     });
 
     drawActiveToolsDisplay(vscode.window.activeTextEditor!.selection.active, vscode.window.activeTextEditor!.document);
+
+    // --------------------------------------------------------------------------------------------------
+    //                                             Sockets
+    // --------------------------------------------------------------------------------------------------
+
+    vscode.commands.registerCommand("p2tas-lang.connectSAR", () => openConnection());
+    vscode.commands.registerCommand("p2tas-lang.playTAS", () => requestPlayback());
+    vscode.commands.registerCommand("p2tas-lang.stopTAS", () => requestStopPlayback());
+    vscode.commands.registerCommand("p2tas-lang.changeRate", async () => {
+        const input = await vscode.window.showInputBox({ placeHolder: "Desired rate", ignoreFocusOut: true });
+        if (!input) return;
+        const rate = +input;
+        requestRatePlayback(rate);
+    });
+    vscode.commands.registerCommand("p2tas-lang.resumeTAS", () => requestStatePlaying());
+    vscode.commands.registerCommand("p2tas-lang.pauseTAS", () => requestStatePaused());
+    vscode.commands.registerCommand("p2tas-lang.fastForward", async () => {
+        const input = await vscode.window.showInputBox({ placeHolder: "Fast forward to tick", ignoreFocusOut: true });
+        if (!input) return;
+        const tick = +input;
+        requestFastForward(tick, false);
+    });
+    vscode.commands.registerCommand("p2tas-lang.setNextPauseTick", async () => {
+        const input = await vscode.window.showInputBox({ placeHolder: "Pause at tick", ignoreFocusOut: true });
+        if (!input) return;
+        const tick = +input;
+        requestNextPauseTick(tick);
+    });
+    vscode.commands.registerCommand("p2tas-lang.advanceTick ", () => requestTickAdvance());
 }
 
 function drawActiveToolsDisplay(cursorPos: vscode.Position, document: vscode.TextDocument) {
@@ -415,4 +445,105 @@ function withMultilineComments(lineText: string, multilineCommentsOpen: number, 
         }
 
     return [lineText, multilineCommentsOpen];
+}
+
+
+// ---------------------------------------------------------------------------------------------------------
+//                                            Socket connection
+// ---------------------------------------------------------------------------------------------------------
+
+const host = 'localhost';
+const port = 6555;
+
+var socket : net.Socket;
+
+function openConnection() {
+    socket = new net.Socket();
+    socket.connect(port, host, () => {
+        vscode.window.showInformationMessage("Successfully connected to SAR!");
+    });
+    socket.on('error', () => vscode.window.showInformationMessage("Failed to connect to SAR."));
+    socket.on('close', () => vscode.window.showInformationMessage("Closed connection to SAR."));
+    socket.on('data', (data) => processData(data))
+}
+
+function checkSocket(): boolean {
+    if (socket === undefined) {
+        vscode.window.showErrorMessage("Not connected to SAR.");
+        return false;
+    }
+
+    if (socket.connecting) {
+        vscode.window.showErrorMessage("Socket connecting.... Please try again later.");
+        return false;
+    }
+
+    if (socket.destroyed) {
+        vscode.window.showErrorMessage("Socket disconnected.... Please connect to SAR.");
+        return false;
+    }
+
+    return true;
+}
+function processData(data: Buffer) {}
+
+function requestPlayback() {
+    if (!checkSocket()) return;
+
+    // var path = vscode.window.activeTextEditor?.document?.fileName;
+    var path = "underground";
+
+    if (path === undefined) {
+        return;
+    }
+    // Edge cases to test for:
+    // - socket not undefined but closed
+    // - remove and check file extension
+    // - check and remove game path
+
+    vscode.window.showInformationMessage("Requesting playback for file " + path);
+    
+    var buf = Buffer.alloc(9 + path.length, 0);
+    buf.writeUInt32BE(path.length, 1);
+    buf.write(path, 5);
+    buf.writeUInt32BE(0, 5 + path.length);
+
+    socket.write(buf);
+}
+function requestStopPlayback() {
+    if (!checkSocket()) return;
+    socket.write(Buffer.alloc(1, 1));
+}
+function requestRatePlayback(rate : number) {
+    if (!checkSocket()) return;
+    var buf = Buffer.alloc(5, 2);
+    buf.writeFloatBE(rate, 1);
+    console.log(buf);
+    socket.write(buf);
+}
+function requestStatePlaying() {
+    if (!checkSocket()) return;
+    socket.write(Buffer.alloc(1, 3));
+}
+function requestStatePaused() {
+    if (!checkSocket()) return;
+    socket.write(Buffer.alloc(1, 4));
+}
+function requestFastForward(tick : number, pause_after : boolean) {
+    if (!checkSocket()) return;
+    var buf = Buffer.alloc(6, 5);
+    buf.writeUInt32BE(tick, 1);
+    if (pause_after) buf.writeUInt8(1, 5)
+    else             buf.writeUInt8(0, 5);
+    socket.write(buf);
+}
+function requestNextPauseTick(tick : number) {
+    if (!checkSocket()) return;
+    var buf = Buffer.alloc(5, 2);
+    buf.writeUInt32BE(tick, 1);
+    socket.write(buf);
+}
+function requestTickAdvance() {
+    if (!checkSocket()) return;
+    socket.write(Buffer.alloc(1, 7));
 }
