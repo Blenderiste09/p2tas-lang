@@ -180,7 +180,7 @@ export function activate(context: vscode.ExtensionContext) {
         const tick = +input;
         server.requestNextPauseTick(tick);
     });
-    vscode.commands.registerCommand("p2tas-lang.advanceTick ", () => server.requestTickAdvance());
+    vscode.commands.registerCommand("p2tas-lang.advanceTick", () => server.requestTickAdvance());
 }
 
 function drawActiveToolsDisplay(cursorPos: vscode.Position, document: vscode.TextDocument) {

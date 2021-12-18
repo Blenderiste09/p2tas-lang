@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as net from 'net';
-import * as path from'path';
+import * as path from 'path';
+import * as fs from 'fs';
 
 enum TASStatus {
     Inactive, Playing, Paused, Skipping
@@ -13,7 +14,7 @@ export class TASServer {
 
     // This data should only be updated from SAR data
     gameLocation: string | undefined;
-    activeTASses: string[2] | undefined;
+    activeTASses = ['','']; // Should always be of length 2
     playbackRate = 1.0;
     status = TASStatus.Inactive;
     currentTick = 0; // Only valid when active
@@ -39,17 +40,19 @@ export class TASServer {
     
         var scriptPath = vscode.window.activeTextEditor?.document?.fileName;
         if (scriptPath === undefined) return;
+        scriptPath = fs.realpathSync(path.normalize(scriptPath));
 
         // If we have no game location, get the plain filename and hope for the best
         if (this.gameLocation === undefined) {
             scriptPath = path.basename(scriptPath);
         } else {
-            if (!scriptPath.startsWith(this.gameLocation)) {
+            const tasFolder = path.join(this.gameLocation, "/tas");
+            if (!scriptPath.startsWith(tasFolder)) {
                 vscode.window.showErrorMessage("Failed to play: file is not in the `Portal 2/tas` directory.");
                 return;
             }
             
-            scriptPath = scriptPath.slice(this.gameLocation.length);
+            scriptPath = path.relative(tasFolder, scriptPath);
         }
 
         // Check it's actually a p2tas
@@ -58,10 +61,6 @@ export class TASServer {
             return;
         }
         scriptPath = scriptPath.slice(0, scriptPath.length - 6); // remove extension
-
-        // Edge cases to test for:
-        // - remove and check file extension
-        // - check and remove game path
 
         vscode.window.showInformationMessage("Requesting playback for file " + scriptPath);
     
@@ -82,7 +81,6 @@ export class TASServer {
             return;
         var buf = Buffer.alloc(5, 2);
         buf.writeFloatBE(rate, 1);
-        console.log(buf);
         this.socket.write(buf);
     }
     requestStatePlaying() {
@@ -109,7 +107,7 @@ export class TASServer {
     requestNextPauseTick(tick: number) {
         if (!this.checkSocket())
             return;
-        var buf = Buffer.alloc(5, 2);
+        var buf = Buffer.alloc(5, 6);
         buf.writeUInt32BE(tick, 1);
         this.socket.write(buf);
     }
@@ -123,7 +121,62 @@ export class TASServer {
     //                Receiving data
     // ----------------------------------------------
 
-    processData(data: Buffer) {}
+    processData(data: Buffer) {
+        while (data.length !== 0) {
+            switch (data[0]) {
+                case 0: // Active TAS files
+                    // File for blue/sp
+                    const len1 = data.readUInt32BE(1);
+                    this.activeTASses[0] = data.toString(undefined, 5, 5 + len1);
+                    data = data.slice(5 + len1);
+
+                    // File for orange
+                    const len2 = data.readUInt32BE(0);
+                    this.activeTASses[1] = data.toString(undefined, 5, 4 + len2);
+                    data = data.slice(4 + len2);
+                    break;
+
+                case 1: // Set inactive
+                    this.status = TASStatus.Inactive;
+                    data = data.slice(1);
+                    break;
+
+                case 2: // Update playback rate
+                    this.playbackRate = data.readFloatBE(1);
+                    data = data.slice(5);
+                    break;
+
+                case 3: // State = playing
+                    this.status = TASStatus.Playing;
+                    data = data.slice(1);
+                    break;
+
+                case 4: // State = paused
+                    this.status = TASStatus.Paused;
+                    data = data.slice(1);
+                    break;
+
+                case 5: // State = skipping
+                    this.status = TASStatus.Skipping;
+                    data = data.slice(1);
+                    break;
+
+                case 6: // update current tick
+                    this.currentTick = data.readUInt32BE(1);
+                    data = data.slice(5);
+                    break;
+
+                case 255: // Game location
+                    const len = data.readUInt32BE(1);
+                    this.gameLocation = fs.realpathSync(path.normalize(data.toString(undefined, 5, 5 + len)));
+                    data = data.slice(5 + len);
+                    break;
+            
+                default: // Bad packet ID, ignore 
+                    break;
+            }
+        }
+    }
 
     // ----------------------------------------------
     //                    Utils
