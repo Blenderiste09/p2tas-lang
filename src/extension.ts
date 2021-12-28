@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
 import { TASServer } from './TASServer';
+import { TASSidebarProvider } from './sidebar';
 
-var server: TASServer;
+export var server: TASServer;
 
 const tokens: { [command: string]: string[]; } = {
     "start": ["now","save","map","next","cm"],
@@ -158,6 +159,7 @@ export function activate(context: vscode.ExtensionContext) {
     // --------------------------------------------------------------------------------------------------
 
     vscode.commands.registerCommand("p2tas-lang.connectSAR", () => server.connect());
+    vscode.commands.registerCommand("p2tas-lang.disconnectSAR", () => server.disconnect());
     vscode.commands.registerCommand("p2tas-lang.playTAS", () => server.requestPlayback());
     vscode.commands.registerCommand("p2tas-lang.stopTAS", () => server.requestStopPlayback());
     vscode.commands.registerCommand("p2tas-lang.changeRate", async () => {
@@ -181,6 +183,20 @@ export function activate(context: vscode.ExtensionContext) {
         server.requestNextPauseTick(tick);
     });
     vscode.commands.registerCommand("p2tas-lang.advanceTick", () => server.requestTickAdvance());
+
+
+    // --------------------------------------------------------------------------------------------------
+    //                                             Sidebar
+    // --------------------------------------------------------------------------------------------------
+
+    const sidebarProvider = new TASSidebarProvider(context.extensionUri, server);
+    context.subscriptions.push(
+      vscode.window.registerWebviewViewProvider(
+        "p2tas-sidebar",
+        sidebarProvider
+      )
+    );
+
 }
 
 function drawActiveToolsDisplay(cursorPos: vscode.Position, document: vscode.TextDocument) {

@@ -109,9 +109,30 @@
                 "key": "ctrl+shift+t",
                 "mac": "cmd+shift+t"
             }
-        ]
+        ],
+        "viewsContainers": {
+            "activitybar": [
+                {
+                    "id": "p2tas-sidebar-view",
+                    "title": "TAS integration",
+                    "icon": "images/play.svg"
+                }
+            ]
+        },
+        "views": {
+            "p2tas-sidebar-view": [
+                {
+                    "type": "webview",
+                    "id": "p2tas-sidebar",
+                    "name": "P2-TAS",
+                    "icon": "images/play.svg",
+                    "contextualTitle": "TAS integration"
+                }
+            ]
+        }
     },
     "activationEvents": [
+        "onView:p2tas-sidebar",
         "onLanguage:p2tas",
         "onCommand:p2tas-lang.relativeFromAbsoluteTick"
     ],

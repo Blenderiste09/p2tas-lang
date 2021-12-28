@@ -2,8 +2,9 @@ import * as vscode from 'vscode';
 import * as net from 'net';
 import * as path from 'path';
 import * as fs from 'fs';
+import { TASSidebarProvider } from './sidebar';
 
-enum TASStatus {
+export enum TASStatus {
     Inactive, Playing, Paused, Skipping
 }
 
@@ -12,6 +13,8 @@ export class TASServer {
     static port = 6555;
     socket: net.Socket;
 
+    connected = false;
+
     // This data should only be updated from SAR data
     gameLocation: string | undefined;
     activeTASses = ['','']; // Should always be of length 2
@@ -19,15 +22,34 @@ export class TASServer {
     status = TASStatus.Inactive;
     currentTick = 0; // Only valid when active
 
+    webView: TASSidebarProvider | undefined;
+
     constructor() {
         this.socket = new net.Socket();
     }
 
     connect() {
-        this.socket.connect(TASServer.port, TASServer.host, () => vscode.window.showInformationMessage("Successfully connected to SAR!"));
+        // TODO: check if we're already connected
+        this.socket.connect(TASServer.port, TASServer.host, () => {
+            vscode.window.showInformationMessage("Successfully connected to SAR!");
+            this.connected = true;
+        });
         this.socket.on('error', () => vscode.window.showInformationMessage("Failed to connect to SAR."));
-        this.socket.on('close', () => vscode.window.showInformationMessage("Closed connection to SAR."));
-        this.socket.on('data', (data) => this.processData(data));
+        this.socket.on('close', () => {
+            vscode.window.showInformationMessage("Closed connection to SAR.");
+            this.connected = false;
+            if (this.webView !== undefined) 
+                this.webView.updateWebView();
+        });
+        this.socket.on('data', (data) => {
+            this.processData(data);
+            if (this.webView !== undefined) 
+                this.webView.updateWebView();
+        });
+    }
+
+    disconnect() {
+        this.socket.destroy();
     }
 
     // ----------------------------------------------
@@ -198,6 +220,6 @@ export class TASServer {
             return false;
         }
 
-        return true;
+        return this.connected;
     }
 }
